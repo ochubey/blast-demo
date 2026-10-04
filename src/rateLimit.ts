@@ -13,9 +13,10 @@ interface Bucket {
 
 const buckets = new Map<string, Bucket>();
 
-/** Which bucket a request counts against. */
+/** Which bucket a request counts against: the API key when present, else the client IP. */
 export function bucketKey(req: FastifyRequest): string {
-  return req.ip;
+  const apiKey = req.headers['x-api-key'];
+  return typeof apiKey === 'string' && apiKey.length > 0 ? `key:${apiKey}` : `ip:${req.ip}`;
 }
 
 /** Fastify hook: fixed-window rate limiter. */
@@ -32,7 +33,8 @@ export function rateLimit(opts: RateLimitOptions = { limit: 100, windowMs: 60_00
 
     bucket.count += 1;
     if (bucket.count > opts.limit) {
-      reply.code(429).send({ error: 'rate_limited' });
+      const retryAfterSeconds = Math.max(1, Math.ceil((bucket.resetAt - now) / 1000));
+      reply.header('Retry-After', retryAfterSeconds).code(429).send({ error: 'rate_limited' });
     }
   };
 }
